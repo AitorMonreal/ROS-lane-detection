@@ -1,0 +1,9 @@
+#goal
+float32 x_position
+---
+#result
+bool goal_success
+---
+#feedback
+float32 distance_to_goal
+float32 angle_to_goal
