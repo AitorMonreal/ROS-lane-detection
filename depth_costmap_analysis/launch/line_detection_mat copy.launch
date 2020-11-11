@@ -1,8 +1,0 @@
-<launch>
-    <node
-    pkg = 'depth_costmap_analysis'
-    type = 'db_line_following.py'
-    name = 'lane_keeping'
-    output = 'screen'
-    />
-</launch>
