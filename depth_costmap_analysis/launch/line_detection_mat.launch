@@ -1,0 +1,8 @@
+<launch>
+    <node
+    pkg = 'depth_costmap_analysis'
+    type = 'line_detection_mod2.py'
+    name = 'lane_keeping'
+    output = 'screen'
+    />
+</launch>

@@ -1,0 +1,8 @@
+<launch>
+    <node
+    pkg = 'depth_costmap_analysis'
+    type = 'costmap_subscriber.py'
+    name = 'costmap_reader'
+    output = 'screen'
+    />
+</launch>
