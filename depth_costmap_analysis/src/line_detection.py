@@ -44,8 +44,9 @@ class Function():
 
 class ImageReader():
     def __init__(self):
-        self._local_costmap_sub = rospy.Subscriber("/move_base/global_costmap/costmap", OccupancyGrid, self.grid_cb)
-        #self._local_costmap_sub = rospy.Subscriber("/move_base/local_costmap/costmap", OccupancyGrid, self.grid_cb)
+        #self._local_costmap_sub = rospy.Subscriber("/move_base/global_costmap/costmap", OccupancyGrid, self.grid_cb)
+        self._local_costmap_sub = rospy.Subscriber("/move_base/local_costmap/costmap", OccupancyGrid, self.grid_cb)
+        #self._local_costmap_sub = rospy.Subscriber("/move_base/map", OccupancyGrid, self.grid_cb)
         self.bridge = CvBridge()
         self.grid_flipped = np.array([])
         self.grid_trimmed = np.array([])
@@ -83,16 +84,24 @@ class LaneKeeping():
 
     def robot_position(self):
         robot_exists, position, orientation, timestamp = self.get_transform("map", "base_footprint")
-        lane_width = int(rospy.get_param('/lane_width_metres')/self.imagereader.grid_res)
-        print(lane_width)
+
         if robot_exists:
             robot_angle = - self.euler_from_quaternion(orientation)[2] * (180 / np.pi)
-            robot_x = position.x/self.imagereader.grid_res
+            
+            while True:
+                try:
+                    robot_x = position.x/self.imagereader.grid_res
+                except ZeroDivisionError:
+                    continue
+
+            #robot_x = position.x/self.imagereader.grid_res
             robot_y = position.y/self.imagereader.grid_res
 
             robot_x_centre = int(self.imagereader.origin_x + robot_x)
             robot_y_centre = int(self.imagereader.origin_y + robot_y)
             prev_width = self.imagereader.grid_flipped.shape[0]
+
+            lane_width = int(rospy.get_param('/lane_width_metres')/self.imagereader.grid_res)
 
             self.imagereader.grid_trimmed = self.imagereader.grid_flipped[(robot_y_centre - (lane_width / 2)):(robot_y_centre + (lane_width / 2)), :]
             new_origin_y = int(self.imagereader.origin_y-((prev_width-lane_width)/2))
