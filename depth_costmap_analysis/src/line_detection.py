@@ -46,6 +46,7 @@ class ImageReader():
     def __init__(self):
         #self._local_costmap_sub = rospy.Subscriber("/move_base/global_costmap/costmap", OccupancyGrid, self.grid_cb)
         self._local_costmap_sub = rospy.Subscriber("/move_base/local_costmap/costmap", OccupancyGrid, self.grid_cb)
+        #self._local_costmap_sub = rospy.Subscriber("/move_base/map", OccupancyGrid, self.grid_cb)
         self.bridge = CvBridge()
         self.grid_flipped = np.array([])
         self.grid_trimmed = np.array([])
@@ -80,19 +81,30 @@ class LaneKeeping():
         self.max_slope = 0.02
         self.distance_to_line_above = 0
         self.distance_to_line_below = 0
+        self.line_distance_diff = 0
+        self.angle_robot_line = 0
 
     def robot_position(self):
         robot_exists, position, orientation, timestamp = self.get_transform("map", "base_footprint")
-        lane_width = rospy.get_param('/lane_width_metres')/grid_res
-        print(lane_width)
+
         if robot_exists:
-            angle_robot = - self.euler_from_quaternion(orientation)[2] * (180 / np.pi)
-            robot_x = position.x * (1 / self.imagereader.grid_res)
-            robot_y = position.y * (1 / self.imagereader.grid_res)
+            robot_angle = - self.euler_from_quaternion(orientation)[2] * (180 / np.pi)
+            
+            while True:
+                try:
+                    robot_x = position.x/self.imagereader.grid_res
+                    break
+                except ZeroDivisionError:
+                    continue
+
+            #robot_x = position.x/self.imagereader.grid_res
+            robot_y = position.y/self.imagereader.grid_res
 
             robot_x_centre = int(self.imagereader.origin_x + robot_x)
             robot_y_centre = int(self.imagereader.origin_y + robot_y)
             prev_width = self.imagereader.grid_flipped.shape[0]
+
+            lane_width = int(rospy.get_param('/lane_width_metres')/self.imagereader.grid_res)
 
             self.imagereader.grid_trimmed = self.imagereader.grid_flipped[(robot_y_centre - (lane_width / 2)):(robot_y_centre + (lane_width / 2)), :]
             new_origin_y = int(self.imagereader.origin_y-((prev_width-lane_width)/2))
@@ -149,18 +161,19 @@ class LaneKeeping():
                 a,b,c = self.get_2D_line_coefficients(x1,x2,y1,y2)
                 self.distance_to_line_below = self.get_2D_distance_to_line(a, b, c, robot_x_centre, robot_y_centre)
             
-            line_distance_diff = abs(self.distance_to_line_above) -  abs(self.distance_to_line_below)
+            if (self.distance_to_line_above != 0) and (self.distance_to_line_below != 0):
+                self.line_distance_diff = abs(self.distance_to_line_above) -  abs(self.distance_to_line_below)
 
-            angle_robot_line = self.robot_to_line_angle(self.line_above_mean, self.line_below_mean)
-            print(angle_robot_line)
+                self.angle_robot_line = self.robot_to_line_angle(robot_angle, self.line_above_mean, self.line_below_mean)
+                print(self.angle_robot_line)
 
-            self.draw_origin(0, 2, color_img, int(self.imagereader.origin_x), int(new_origin_y))
-            self.draw_robot_orientation(angle_robot, 20, color_img, robot_x_centre, robot_y_centre)
+            self.draw_pixel_line(0, 2, color_img, int(self.imagereader.origin_x), int(new_origin_y), (255,0,0))  # Map Origin in red
+            self.draw_pixel_line(robot_angle, 20, color_img, robot_x_centre, robot_y_centre, (0,255,0))  # Robot Orientation in green
 
             ros_img = self.imagereader.bridge.cv2_to_imgmsg(color_img, encoding="rgb8")
             self.image_pub.publish(ros_img)
 
-            return line_distance_diff, angle_robot_line
+            return self.line_distance_diff, self.angle_robot_line
 
         return 0,0,0
         self.r.sleep()
@@ -178,18 +191,11 @@ class LaneKeeping():
         quat = [quaternion.x, quaternion.y, quaternion.z, quaternion.w]
         euler = tf.transformations.euler_from_quaternion(quat)
         return euler
-
-    def draw_robot_orientation(self, angle, pixel_size, image, width, height):
-        #p1 = (width/2, height/2)
+    
+    def draw_pixel_line(self, angle, pixel_size, image, width, height, line_colour):
         p1 = (width, height)
         p2 = (int(p1[0] + pixel_size * np.cos(angle * np.pi / 180)), int(p1[1] + pixel_size * np.sin(angle * np.pi / 180)))
-        cv2.line(image, p1, p2, (0,255,0))
-
-    def draw_origin(self, angle, pixel_size, image, width, height):
-        #p1 = (width/2, height/2)
-        p1 = (width, height)
-        p2 = (int(p1[0] + pixel_size * np.cos(angle * np.pi / 180)), int(p1[1] + pixel_size * np.sin(angle * np.pi / 180)))
-        cv2.line(image, p1, p2, (255,0, 0))
+        cv2.line(image, p1, p2, line_colour)
 
     def get_points(self):
         return linepoints.line1_x1, linepoints.line1_x2, linepoints.line1_y1, linepoints.line1_y2, linepoints.line2_x1, linepoints.line2_x2, linepoints.line2_y1, linepoints.line2_y2
@@ -230,7 +236,7 @@ class LaneKeeping():
         line_x_proj = np.dot(line_vector, np.array([1,0]))/np.linalg.norm(line_vector)
         line_angle = np.arccos(line_x_proj)*180/np.pi
 
-        angle_robot_line = angle_robot-line_angle
+        angle_robot_line = robot_angle-line_angle
         
         return angle_robot_line
 
