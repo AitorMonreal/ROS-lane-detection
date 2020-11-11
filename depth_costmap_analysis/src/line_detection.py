@@ -81,6 +81,8 @@ class LaneKeeping():
         self.max_slope = 0.02
         self.distance_to_line_above = 0
         self.distance_to_line_below = 0
+        self.line_distance_diff = 0
+        self.angle_robot_line = 0
 
     def robot_position(self):
         robot_exists, position, orientation, timestamp = self.get_transform("map", "base_footprint")
@@ -91,6 +93,7 @@ class LaneKeeping():
             while True:
                 try:
                     robot_x = position.x/self.imagereader.grid_res
+                    break
                 except ZeroDivisionError:
                     continue
 
@@ -158,10 +161,11 @@ class LaneKeeping():
                 a,b,c = self.get_2D_line_coefficients(x1,x2,y1,y2)
                 self.distance_to_line_below = self.get_2D_distance_to_line(a, b, c, robot_x_centre, robot_y_centre)
             
-            line_distance_diff = abs(self.distance_to_line_above) -  abs(self.distance_to_line_below)
+            if (self.distance_to_line_above != 0) and (self.distance_to_line_below != 0):
+                self.line_distance_diff = abs(self.distance_to_line_above) -  abs(self.distance_to_line_below)
 
-            angle_robot_line = self.robot_to_line_angle(robot_angle, self.line_above_mean, self.line_below_mean)
-            print(angle_robot_line)
+                self.angle_robot_line = self.robot_to_line_angle(robot_angle, self.line_above_mean, self.line_below_mean)
+                print(self.angle_robot_line)
 
             self.draw_pixel_line(0, 2, color_img, int(self.imagereader.origin_x), int(new_origin_y), (255,0,0))  # Map Origin in red
             self.draw_pixel_line(robot_angle, 20, color_img, robot_x_centre, robot_y_centre, (0,255,0))  # Robot Orientation in green
@@ -169,7 +173,7 @@ class LaneKeeping():
             ros_img = self.imagereader.bridge.cv2_to_imgmsg(color_img, encoding="rgb8")
             self.image_pub.publish(ros_img)
 
-            return line_distance_diff, angle_robot_line
+            return self.line_distance_diff, self.angle_robot_line
 
         return 0,0,0
         self.r.sleep()
