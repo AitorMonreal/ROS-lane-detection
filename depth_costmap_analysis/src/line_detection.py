@@ -1,14 +1,15 @@
 #!/usr/bin/env python
 import rospy
-import cv2
-from nav_msgs.msg import OccupancyGrid
 import numpy as np
+import cv2
 from cv_bridge import CvBridge
-from sensor_msgs.msg import Image
 import math
 import tf2_ros
 import tf
 from collections import deque
+from nav_msgs.msg import OccupancyGrid
+from sensor_msgs.msg import Image
+
 
 class LinePoints():
     def __init__(self):
@@ -22,8 +23,6 @@ class LinePoints():
         self.line2_y2=0
 
 linepoints = LinePoints()
-
-rospy.set_param('/lane_width_metres', 1)
 
 class Function():
     def __init__(self, a, b):
@@ -61,8 +60,8 @@ class ImageReader():
         grid_masked = np.ma.array(grid, mask=grid==0, fill_value=255)
         # flip the axes to match ROS representation
         self.grid_flipped = np.flip(grid_masked, 0)
-        self.origin_x = -msg.info.origin.position.x*(1/self.grid_res)
-        self.origin_y = self.grid_flipped.shape[0] + msg.info.origin.position.y*(1/self.grid_res)
+        self.origin_x = - msg.info.origin.position.x/self.grid_res
+        self.origin_y = self.grid_flipped.shape[0] + msg.info.origin.position.y/self.grid_res
 
 class LaneKeeping():
     def __init__(self):
@@ -94,16 +93,15 @@ class LaneKeeping():
                 try:
                     robot_x = position.x/self.imagereader.grid_res
                     break
-                except ZeroDivisionError:
+                except ZeroDivisionError:  # exception for when there is yet no map coming from the costmap topic
                     continue
 
             #robot_x = position.x/self.imagereader.grid_res
             robot_y = position.y/self.imagereader.grid_res
-
             robot_x_centre = int(self.imagereader.origin_x + robot_x)
             robot_y_centre = int(self.imagereader.origin_y + robot_y)
-            prev_width = self.imagereader.grid_flipped.shape[0]
 
+            prev_width = self.imagereader.grid_flipped.shape[0]
             lane_width = int(rospy.get_param('/lane_width_metres')/self.imagereader.grid_res)
 
             self.imagereader.grid_trimmed = self.imagereader.grid_flipped[(robot_y_centre - (lane_width / 2)):(robot_y_centre + (lane_width / 2)), :]
@@ -111,7 +109,6 @@ class LaneKeeping():
             robot_y_centre = int(new_origin_y + robot_y)
 
             img_cv = cv2.resize(self.imagereader.grid_trimmed, (self.imagereader.grid_trimmed.shape[1], self.imagereader.grid_trimmed.shape[0]))  # .shape[1] defines the height, while .shape[0] defines the image width
-            # gray = cv2.cvtColor(grid_flipped,cv2.COLOR_BGR2GRAY)
             smooth = cv2.GaussianBlur(img_cv,(5,5),0)
             edges = cv2.Canny(smooth,0,150,apertureSize = 3)
             lines = cv2.HoughLinesP(image=edges,
@@ -142,7 +139,6 @@ class LaneKeeping():
                             self.lines_below_robot_a.append(fn.a)
                             self.lines_below_robot_b.append(fn.b)
 
-
                     offset = ((max(x2, x1) - min(x2, x1))/2, (max(y2, y1) - min(y2,y1))/2)
                     mid_point = (min(x2, x1) + offset[0], min(y2, y1) + offset[1])
                     cv2.circle(color_img, (mid_point), 1, (255, 255, 255), 1)
@@ -161,7 +157,7 @@ class LaneKeeping():
                 a,b,c = self.get_2D_line_coefficients(x1,x2,y1,y2)
                 self.distance_to_line_below = self.get_2D_distance_to_line(a, b, c, robot_x_centre, robot_y_centre)
             
-            if (self.distance_to_line_above != 0) and (self.distance_to_line_below != 0):
+            if (self.distance_to_line_above != 0) and (self.distance_to_line_below != 0):  # line_distance_diff and angle_robot_line are only calculated if we have 2 lines
                 self.line_distance_diff = abs(self.distance_to_line_above) -  abs(self.distance_to_line_below)
 
                 self.angle_robot_line = self.robot_to_line_angle(robot_angle, self.line_above_mean, self.line_below_mean)
@@ -174,7 +170,6 @@ class LaneKeeping():
             self.image_pub.publish(ros_img)
 
             return self.line_distance_diff, self.angle_robot_line
-
         return 0,0,0
         self.r.sleep()
 
@@ -228,21 +223,19 @@ class LaneKeeping():
     def robot_to_line_angle(self, robot_angle, line_above_mean, line_below_mean):
         average_line_a = (line_above_mean.a + line_below_mean.a)/2
         average_line_b = (line_above_mean.b + line_below_mean.b)/2
-
         x1,y1,x2,y2 = self.line_to_points(average_line_a, average_line_b)
         p1 = np.array([x1,y1])
         p2 = np.array([x2,y2])
         line_vector = p2-p1
         line_x_proj = np.dot(line_vector, np.array([1,0]))/np.linalg.norm(line_vector)
         line_angle = np.arccos(line_x_proj)*180/np.pi
-
         angle_robot_line = robot_angle-line_angle
-        
         return angle_robot_line
 
 
 if __name__ == "__main__":
     rospy.init_node("lane_keeping", anonymous=False)
+    rospy.set_param('/lane_width_metres', 1)
     lanekeeping = LaneKeeping()
     while not rospy.is_shutdown():
         try:
